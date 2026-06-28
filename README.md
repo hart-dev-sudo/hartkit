@@ -10,7 +10,8 @@ hartkit is a growing collection of networking and security tools built from scra
 
 | Tool | Description | Status |
 |------|-------------|--------|
-| *(more coming)* | | |
+| `tools/port_scanner.py` | TCP port scanner — threaded, banner grabbing, range support | Complete |
+| `tools/ping_sweep.py` | Ping sweep / host discovery — scans a subnet for live hosts | Complete |
 
 ## Structure
 
