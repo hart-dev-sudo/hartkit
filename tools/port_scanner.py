@@ -6,12 +6,18 @@ def scan_port(host, port):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         result = sock.connect_ex((host, port))
-        sock.close()
         if result == 0:
-            return True
-        return False
+            try:
+                sock.settimeout(1)
+                banner = sock.recv(1024).decode('utf-8', errors='ignore').strip()
+            except:
+                banner = ""
+            sock.close()
+            return banner if banner else "(no banner)"
+        sock.close()
+        return None
     except socket.error:
-        return False
+        return None
 
 def scan_range(host, start_port, end_port):
     print(f"\nScanning {host} from port {start_port} to {end_port}\n")
@@ -22,8 +28,9 @@ def scan_range(host, start_port, end_port):
         for future in concurrent.futures.as_completed(future_to_port):
             port = future_to_port[future]
             try:
-                if future.result():
-                    print(f"[OPEN] Port {port}")
+                banner = future.result()
+                if banner:
+                    print(f"[OPEN] Port {port}  |  {banner}")
                     open_ports.append(port)
             except Exception as e:
                 print(f"Error occurred while scanning port {port}: {e}")
