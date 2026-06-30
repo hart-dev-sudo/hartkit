@@ -1,4 +1,5 @@
 import socket
+import select
 import concurrent.futures
 import ipaddress
 import argparse
@@ -6,15 +7,28 @@ import sys
 import threading
 import time
 
-def ping_host(host):
+PROBE_PORTS = [22, 23, 80, 443, 445, 3389, 8080, 8443]
+
+def probe_port(host, port):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        result = sock.connect_ex((str(host), 80))
+        sock.setblocking(False)
+        sock.connect_ex((str(host), port))
+        ready = select.select([], [sock], [], 0.1)
+        if ready[1]:
+            err = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+            sock.close()
+            return err == 0
         sock.close()
-        return str(host) if result == 0 else None
+        return False
     except socket.error:
-        return None
+        return False
+
+def resolve_hostname(ip):
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except socket.herror:
+        return "(no hostname)"
 
 def progress_bar(done, total, width=40):
     filled = int(width * done / total)
@@ -27,53 +41,64 @@ def sweep(network, output=None):
     net = ipaddress.ip_network(network, strict=False)
     hosts = list(net.hosts())
     total = len(hosts)
-    done = 0
     lock = threading.Lock()
-    live_hosts = []
 
     print(f"\nSweeping {network} ({total} hosts)\n")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-        future_to_host = {executor.submit(ping_host, host): host for host in hosts}
-        for future in concurrent.futures.as_completed(future_to_host):
+    found = set()
+    port_counts = {}
+    hosts_done = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=200) as executor:
+        future_to_key = {
+            executor.submit(probe_port, host, port): (str(host), port)
+            for host in hosts
+            for port in PROBE_PORTS
+        }
+        for future in concurrent.futures.as_completed(future_to_key):
+            host_str, port = future_to_key[future]
             try:
-                result = future.result()
-                if result:
-                    live_hosts.append(result)
+                if future.result():
+                    found.add(host_str)
             except Exception as e:
                 print(f"\nError: {e}")
-            with lock:
-                done += 1
-                progress_bar(done, total)
+            port_counts[host_str] = port_counts.get(host_str, 0) + 1
+            if port_counts[host_str] == len(PROBE_PORTS):
+                with lock:
+                    hosts_done += 1
+                    progress_bar(hosts_done, total)
 
+    live_hosts = sorted(found, key=lambda ip: ipaddress.ip_address(ip))
     print()
-    live_hosts.sort(key=lambda ip: ipaddress.ip_address(ip))
 
-    lines = [f"[UP] {host}" for host in live_hosts]
+    lines = []
+    for ip in live_hosts:
+        hostname = resolve_hostname(ip)
+        lines.append(f"[UP] {ip}  |  {hostname}")
+
     for line in lines:
         print(line)
 
-    summary = f"\n{len(live_hosts)} host(s) up on {network}"
-    print(summary)
-
-    if output:
-        with open(output, "w") as f:
-            f.write(f"Sweep: {network}\n")
-            f.write(f"{'─' * 50}\n")
-            for line in lines:
-                f.write(line + "\n")
-            f.write(summary + "\n")
-        print(f"Results saved to {output}")
-
-    return live_hosts
+    return lines
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TCP ping sweep — host discovery via port 80")
+    parser = argparse.ArgumentParser(description="TCP ping sweep — multi-port host discovery")
     parser.add_argument("network", nargs="?", default="192.168.1.0/24", help="Target network in CIDR notation (default: 192.168.1.0/24)")
     parser.add_argument("--output", type=str, help="Save results to file")
     args = parser.parse_args()
 
     start_time = time.time()
-    sweep(args.network, output=args.output)
+    lines = sweep(args.network, output=args.output)
     elapsed = time.time() - start_time
-    print(f"Completed in {elapsed:.1f}s")
+
+    summary = f"\n{len(lines)} host(s) up on {args.network} in {elapsed:.1f}s"
+    print(summary)
+
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(f"Sweep: {args.network}\n")
+            f.write(f"{'─' * 50}\n")
+            for line in lines:
+                f.write(line + "\n")
+            f.write(summary + "\n")
+        print(f"Results saved to {args.output}")
