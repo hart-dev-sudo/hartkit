@@ -1,5 +1,5 @@
+import os
 import socket
-import select
 import concurrent.futures
 import ipaddress
 import argparse
@@ -7,35 +7,18 @@ import sys
 import threading
 import time
 
-PROBE_PORTS = [22, 23, 80, 443, 445, 3389, 8080, 8443]
-
-def probe_port(host, port, timeout=0.1):
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setblocking(False)
-        sock.connect_ex((str(host), port))
-        ready = select.select([], [sock], [], timeout)
-        if ready[1]:
-            err = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-            sock.close()
-            return err == 0
-        sock.close()
-        return False
-    except socket.error:
-        return False
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.progress import progress_bar
+from core.tcp_probe import probe_port
+from core.ports import PROBE_PORTS
+from core.output import save_results
+from core.defaults import DEFAULT_NETWORK
 
 def resolve_hostname(ip):
     try:
         return socket.gethostbyaddr(ip)[0]
-    except socket.herror:
+    except OSError:
         return "(no hostname)"
-
-def progress_bar(done, total, width=40):
-    filled = int(width * done / total)
-    bar = "█" * filled + "░" * (width - filled)
-    pct = int(100 * done / total)
-    sys.stdout.write(f"\r  [{bar}] {pct}% ({done}/{total})")
-    sys.stdout.flush()
 
 def sweep(network, timeout=0.1):
     net = ipaddress.ip_network(network, strict=False)
@@ -86,7 +69,7 @@ if __name__ == "__main__":
         description="TCP ping sweep — multi-port host discovery",
         epilog="For authorized use only. Do not scan networks you do not own or have explicit permission to test."
     )
-    parser.add_argument("network", nargs="?", default="192.168.1.0/24", help="Target network in CIDR notation (default: 192.168.1.0/24)")
+    parser.add_argument("network", nargs="?", default=DEFAULT_NETWORK, help=f"Target network in CIDR notation (default: {DEFAULT_NETWORK})")
     parser.add_argument("--timeout", type=float, default=0.1, choices=[0.1, 0.3, 0.5, 1.0],
                         metavar="{0.1,0.3,0.5,1.0}",
                         help="Probe timeout in seconds (default: 0.1 — fast/LAN; 0.3 balanced; 0.5/1.0 for slower networks)")
@@ -103,10 +86,5 @@ if __name__ == "__main__":
     print(summary)
 
     if args.output:
-        with open(args.output, "w") as f:
-            f.write(f"Sweep: {args.network}\n")
-            f.write(f"{'─' * 50}\n")
-            for line in lines:
-                f.write(line + "\n")
-            f.write(summary + "\n")
+        save_results(args.output, f"Sweep: {args.network}", lines, summary)
         print(f"Results saved to {args.output}")

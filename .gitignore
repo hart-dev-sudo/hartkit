@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# hartkit personal defaults — not for the public repo
+core/local_config.py
+
 # Environments
 .env
 .envrc
