@@ -9,12 +9,12 @@ import time
 
 PROBE_PORTS = [22, 23, 80, 443, 445, 3389, 8080, 8443]
 
-def probe_port(host, port):
+def probe_port(host, port, timeout=0.1):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setblocking(False)
         sock.connect_ex((str(host), port))
-        ready = select.select([], [sock], [], 0.1)
+        ready = select.select([], [sock], [], timeout)
         if ready[1]:
             err = sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
             sock.close()
@@ -37,7 +37,7 @@ def progress_bar(done, total, width=40):
     sys.stdout.write(f"\r  [{bar}] {pct}% ({done}/{total})")
     sys.stdout.flush()
 
-def sweep(network, output=None):
+def sweep(network, timeout=0.1):
     net = ipaddress.ip_network(network, strict=False)
     hosts = list(net.hosts())
     total = len(hosts)
@@ -51,7 +51,7 @@ def sweep(network, output=None):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=200) as executor:
         future_to_key = {
-            executor.submit(probe_port, host, port): (str(host), port)
+            executor.submit(probe_port, host, port, timeout): (str(host), port)
             for host in hosts
             for port in PROBE_PORTS
         }
@@ -82,13 +82,21 @@ def sweep(network, output=None):
     return lines
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TCP ping sweep — multi-port host discovery")
+    parser = argparse.ArgumentParser(
+        description="TCP ping sweep — multi-port host discovery",
+        epilog="For authorized use only. Do not scan networks you do not own or have explicit permission to test."
+    )
     parser.add_argument("network", nargs="?", default="192.168.1.0/24", help="Target network in CIDR notation (default: 192.168.1.0/24)")
+    parser.add_argument("--timeout", type=float, default=0.1, choices=[0.1, 0.3, 0.5, 1.0],
+                        metavar="{0.1,0.3,0.5,1.0}",
+                        help="Probe timeout in seconds (default: 0.1 — fast/LAN; 0.3 balanced; 0.5/1.0 for slower networks)")
     parser.add_argument("--output", type=str, help="Save results to file")
     args = parser.parse_args()
 
+    print("For authorized use only. Do not scan networks you do not own or have explicit permission to test.")
+
     start_time = time.time()
-    lines = sweep(args.network, output=args.output)
+    lines = sweep(args.network, timeout=args.timeout)
     elapsed = time.time() - start_time
 
     summary = f"\n{len(lines)} host(s) up on {args.network} in {elapsed:.1f}s"

@@ -74,7 +74,10 @@ def scan_range(host, ports):
     return results
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="TCP port scanner with banner grabbing")
+    parser = argparse.ArgumentParser(
+        description="TCP port scanner with banner grabbing",
+        epilog="For authorized use only. Do not scan hosts you do not own or have explicit permission to test."
+    )
     parser.add_argument("host", nargs="?", default="scanme.nmap.org", help="Target host or IP (default: scanme.nmap.org)")
     parser.add_argument("--start", type=int, default=1, help="Start port (default: 1)")
     parser.add_argument("--end", type=int, default=1024, help="End port (default: 1024)")
@@ -89,6 +92,7 @@ if __name__ == "__main__":
         ports = range(args.start, args.end + 1)
         label = f"ports {args.start}-{args.end}"
 
+    print("For authorized use only. Do not scan hosts you do not own or have explicit permission to test.")
     print(f"\nScanning {args.host} — {label}\n")
 
     start_time = time.time()
